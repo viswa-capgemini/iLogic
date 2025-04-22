@@ -1,324 +1,201 @@
-AddReference "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\Newtonsoft.Json.dll"
+AddReference "C:\Users\reetts\Desktop\Project\IPT_project\3Dconfig\parts\Newtonsoft.Json.dll"
 Imports System.IO
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 Imports Inventor
+
 Sub Main()
-Dim invApp As Inventor.Application = ThisApplication
-Dim asmDoc As AssemblyDocument = ThisDoc.Document
+    Dim invApp As Inventor.Application = ThisApplication
+    Dim asmDoc As AssemblyDocument = ThisDoc.Document
 
-Dim jsonPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\layoutdata.txt"
-If Not System.IO.File.Exists(jsonPath) Then
-	MessageBox.Show("JSON file not found at: " & jsonPath)
-	Return
-End If
+    Dim jsonPath As String = "C:\Users\reetts\Desktop\Project\IPT_project\3Dconfig\parts\layoutdata.txt"
+    If Not System.IO.File.Exists(jsonPath) Then
+        MessageBox.Show("JSON file not found at: " & jsonPath)
+        Return
+    End If
 
-Dim jsonText As String = System.IO.File.ReadAllText(jsonPath)
-Dim json As JObject = JObject.Parse(jsonText)
-Dim basePath As String = json("basePath").ToString()
+    Dim jsonText As String = System.IO.File.ReadAllText(jsonPath)
+    Dim json As JObject = JObject.Parse(jsonText)
+    Dim basePath As String = json("basePath").ToString()
 
-For Each comp In json("components")
-	Dim fileName As String = comp("fileName").ToString()
-	Dim fullPath As String = System.IO.Path.Combine(basePath, fileName)
+    For Each comp In json("components")
+        Dim fileName As String = comp("fileName").ToString()
+        Dim fullPath As String = System.IO.Path.Combine(basePath, fileName)
 
-	If Not System.IO.File.Exists(fullPath) Then
-		MessageBox.Show("Missing part: " & fullPath)
-		Continue For
-	End If
+        If Not System.IO.File.Exists(fullPath) Then
+            MessageBox.Show("Missing part: " & fullPath)
+            Continue For
+        End If
 
-	' Position
-	Dim px As Double = CDbl(comp("position")("x")) / 10 ' mm to cm
-	Dim py As Double = CDbl(comp("position")("y")) / 10
-	Dim pz As Double = CDbl(comp("position")("z")) / 10
+        Dim px As Double = CDbl(comp("position")("x")) / 10
+        Dim py As Double = CDbl(comp("position")("y")) / 10
+        Dim pz As Double = CDbl(comp("position")("z")) / 10
 
-	' Rotation (default 0 if missing)
-	Dim rx As Double = 0
-	Dim ry As Double = 0
-	Dim rz As Double = 0
+        Dim rx As Double = 0, ry As Double = 0, rz As Double = 0
+        If comp("rotation") IsNot Nothing Then
+            rx = CDbl(comp("rotation")("x"))
+            ry = CDbl(comp("rotation")("y"))
+            rz = CDbl(comp("rotation")("z"))
+        End If
 
-	If comp("rotation") IsNot Nothing Then
-		rx = CDbl(comp("rotation")("x"))
-		ry = CDbl(comp("rotation")("y"))
-		rz = CDbl(comp("rotation")("z"))
-	End If
+        Dim tg As TransientGeometry = invApp.TransientGeometry
+        Dim matrix As Matrix = tg.CreateMatrix()
+        matrix.SetTranslation(tg.CreateVector(px, py, pz), False)
 
-	Dim tg As TransientGeometry = invApp.TransientGeometry
-	Dim matrix As Matrix = tg.CreateMatrix()
-	matrix.SetTranslation(tg.CreateVector(px, py, pz), False)
+        ' Beam logic
+        If fileName.ToLower().Contains("beam") Then
+            Dim spacing As Double = -1400 / 10
+            Dim zSpacing As Double = -4100 / 10
 
-	' Beam logic
-	If fileName.ToLower().Contains("beam") Then
-		Dim spacing As Double = -1400 / 10 ' cm
-		Dim zSpacing As Double = -4100 / 10 ' 4100 mm in cm
-		Dim stopperPath As String = System.IO.Path.Combine(basePath, "Pallet stopper bracket No overhang.ipt")
+            If px = -120.7 AndAlso py = 246.1 AndAlso pz = -50.5 Then
+                For i As Integer = 0 To 9
+                    For j As Integer = 0 To 2
+                        Dim beamMatrix As Matrix = tg.CreateMatrix()
+                        beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+                        beamMatrix.Cell(1, 1) = 1 : beamMatrix.Cell(2, 3) = 1 : beamMatrix.Cell(3, 2) = -1
+                        asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+                    Next
+                Next
+            ElseIf px = 28.3 AndAlso py = 246.1 AndAlso pz = -359 Then
+                For i As Integer = 0 To 9
+                    For j As Integer = 0 To 2
+                        Dim beamMatrix As Matrix = tg.CreateMatrix()
+                        beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+                        beamMatrix.Cell(1, 1) = -1 : beamMatrix.Cell(2, 3) = 1 : beamMatrix.Cell(3, 2) = 1
+                        asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+                    Next
+                Next
+            Else
+                For i As Integer = 0 To 2
+                    Dim beamMatrix As Matrix = tg.CreateMatrix()
+                    beamMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz), False)
+                    asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+                Next
+            End If
+            Continue For
+        End If
 
-		' Check for specific position to apply the 100 times logic
-		If px = -120.7 AndAlso py = 246.1 AndAlso pz = -50.5 Then
+        ' Stopper logic
+        If fileName.ToLower().Contains("stopper") Then
+            Dim spacing As Double = -1400 / 10
+            Dim offsetZ As Double = 4100 / 10
+            For i As Integer = 0 To 2
+                Dim stopperMatrix As Matrix = tg.CreateMatrix()
+                stopperMatrix.SetTranslation(tg.CreateVector(pz, py + (i * spacing), px), False)
+                Dim rotationMatrix As Matrix = tg.CreateMatrix()
+                rotationMatrix.SetToRotation(Math.PI / 2, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
+                stopperMatrix.TransformBy(rotationMatrix)
+                asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix)
+            Next
+            For i As Integer = 0 To 2
+                Dim stopperMatrix2 As Matrix = tg.CreateMatrix()
+                stopperMatrix2.SetTranslation(tg.CreateVector(pz + offsetZ, py + (i * spacing), px), False)
+                Dim rotationMatrix As Matrix = tg.CreateMatrix()
+                rotationMatrix.SetToRotation(Math.PI / 2, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
+                stopperMatrix2.TransformBy(rotationMatrix)
+                asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix2)
+            Next
+            Continue For
+        End If
 
-			For i As Integer = 0 To 9
-				For j As Integer = 0 To 2
+        ' C-Channel
+        If fileName.ToLower().Contains("c - channel.ipt") Then
+            Dim zSpacing As Double = -4100 / 10
+            Dim spacing As Double = -1400 / 10
+            For j As Integer = 0 To 9
+                For i As Integer = 0 To 2
+                    Dim channelMatrix As Matrix = tg.CreateMatrix()
+                    channelMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz + (j * zSpacing)), False)
+                    asmDoc.ComponentDefinition.Occurrences.Add(fullPath, channelMatrix)
+                Next
+            Next
+            Continue For
+        End If
 
-					Dim beamMatrix As matrix = tg.CreateMatrix()
-					beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+        ' Screws
+        If fileName.ToLower().Contains("iso 4018") Then
+            Dim screwSpacing As Double = -50 / 10
+            For i As Integer = 0 To 1
+                Dim screwMatrix As Matrix = tg.CreateMatrix()
+                screwMatrix.SetTranslation(tg.CreateVector(px, py, pz + (i * screwSpacing)), False)
+                Dim rotationMatrix As Matrix = tg.CreateMatrix()
+                rotationMatrix.SetToRotation(Math.PI, tg.CreateVector(0, 0, 1), tg.CreatePoint(0, 0, 0))
+                screwMatrix.TransformBy(rotationMatrix)
+                asmDoc.ComponentDefinition.Occurrences.Add(fullPath, screwMatrix)
+            Next
+            Continue For
+        End If
 
-					' Handle known beam rotation
-					beamMatrix.Cell(1, 1) = 1
-					beamMatrix.Cell(1, 2) = 0
-					beamMatrix.Cell(1, 3) = 0
-					beamMatrix.Cell(2, 1) = 0
-					beamMatrix.Cell(2, 2) = 0
-					beamMatrix.Cell(2, 3) = 1
-					beamMatrix.Cell(3, 1) = 0
-					beamMatrix.Cell(3, 2) = -1
-					beamMatrix.Cell(3, 3) = 0
+        ' Normal part
+        asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix)
 
-					asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
-				Next
-			Next
-		ElseIf px = 28.3 AndAlso py = 246.1 AndAlso pz = -359 Then
-			For i As Integer = 0 To 9
-				For j As Integer = 0 To 2
-					Dim beamMatrix As matrix = tg.CreateMatrix()
-					beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+        ' Duplicate frame
+        If fileName.ToLower().Contains("frame") Then
+            Dim spacing As Double = -4100 / 10
+            For i As Integer = 0 To 9
+                Dim matrix2 As Matrix = tg.CreateMatrix()
+                matrix2.SetTranslation(tg.CreateVector(px, py, pz + (i * spacing)), False)
+                asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix2)
+            Next
+        End If
+    Next
 
-					beamMatrix.Cell(1, 1) = -1
-					beamMatrix.Cell(1, 2) = 0
-					beamMatrix.Cell(1, 3) = 0
-					beamMatrix.Cell(2, 1) = 0
-					beamMatrix.Cell(2, 2) = 0
-					beamMatrix.Cell(2, 3) = 1
-					beamMatrix.Cell(3, 1) = 0
-					beamMatrix.Cell(3, 2) = 1
-					beamMatrix.Cell(3, 3) = 0
-
-					asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
-				Next
-			Next
-		Else
-			For i As Integer = 0 To 2
-				Dim beamMatrix As matrix = tg.CreateMatrix()
-				beamMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz), False)
-				asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
-			Next
-		End If
-
-		Continue For
-	End If
-
-	' Place stopper directly with JSON position — three times like beams
-	If fileName.ToLower().Contains("stopper") Then
-		Dim spacing As Double = -1400 / 10 ' 1400 mm in cm
-		Dim offsetZ As Double = 4100 / 10  ' 4100 mm in cm
-
-		' First set of 3 stoppers
-		For i As Integer = 0 To 2
-			Dim stopperMatrix As matrix = tg.CreateMatrix()
-			stopperMatrix.SetTranslation(tg.CreateVector(pz, py + (i * spacing), px), False)
-
-			Dim angleRad As Double = Math.PI / 2
-			Dim rotationMatrix As matrix = tg.CreateMatrix()
-			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
-			stopperMatrix.TransformBy(rotationMatrix)
-
-			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix)
-		Next
-
-		' Second set of 3 stoppers, 4100mm offset in Z direction
-		For i As Integer = 0 To 2
-			Dim stopperMatrix2 As matrix = tg.CreateMatrix()
-			stopperMatrix2.SetTranslation(tg.CreateVector(pz + offsetZ, py + (i * spacing), px), False)
-
-			Dim angleRad As Double = Math.PI / 2
-			Dim rotationMatrix As matrix = tg.CreateMatrix()
-			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
-			stopperMatrix2.TransformBy(rotationMatrix)
-
-			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix2)
-		Next
-
-		Continue For
-	End If
-
-
-	If fileName.ToLower().Contains("c - channel.ipt") Then
-		Dim zSpacing As Double = -4100 / 10 ' 4100 mm in cm
-		Dim spacing As Double = -1400 / 10 ' 1400 mm in cm
-
-		For j As Integer = 0 To 9
-			For i As Integer = 0 To 2
-				Dim channelMatrix As matrix = tg.CreateMatrix()
-				channelMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz + (j * zSpacing)), False)
-
-				' Optional: Apply rotation if needed, for example:
-				' Dim angleRad As Double = Math.PI / 2
-				' Dim rotationMatrix As Matrix = tg.CreateMatrix()
-				' rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
-				' channelMatrix.TransformBy(rotationMatrix)
-
-				asmDoc.ComponentDefinition.Occurrences.Add(fullPath, channelMatrix)
-			Next
-		Next
-
-		Continue For
-	End If
-
-	If fileName.ToLower().Contains("iso 4018") Then
-		Dim screwSpacing As Double = -50 / 10
-
-		' Place 3 screws with spacing
-		For i As Integer = 0 To 1
-			Dim screwMatrix As matrix = tg.CreateMatrix()
-			screwMatrix.SetTranslation(tg.CreateVector(px, py, pz + (i * screwSpacing)), False)
-
-			' Apply Z-axis rotation
-			Dim angleRad As Double = Math.PI ' or comp("rotation")("z") if dynamic
-			Dim rotationMatrix As matrix = tg.CreateMatrix()
-			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 0, 1), tg.CreatePoint(0, 0, 0))
-			screwMatrix.TransformBy(rotationMatrix)
-
-			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, screwMatrix)
-		Next
-
-		Continue For
-	End If
-
-	' Place normal part
-	asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix)
-	' Duplicate frame if needed
-	If fileName.ToLower().Contains("frame") Then
-		Dim spacing As Double = -4100 / 10 ' 4100 mm in cm
-
-		For i As Integer = 0 To 9
-			Dim matrix2 As matrix = tg.CreateMatrix()
-			matrix2.SetTranslation(tg.CreateVector(px, py, pz + (i * spacing)), False)
-			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix2)
-		Next
-	End If
-Next
-
-asmDoc.Save()
-
-' After placing all components, modify the frame parameter
-ModifyFrameParameters()
-
-MessageBox.Show("All components placed!", "Assembly Complete")
+    asmDoc.Save()
+    ModifyFrameParameters()
+    MessageBox.Show("All components placed!", "Assembly Complete")
 End Sub
 
-' Add this to your existing code, after placing the frame assembly
 Sub ModifyFrameParameters()
     Dim invApp As Inventor.Application = ThisApplication
     Dim asmDoc As AssemblyDocument = ThisDoc.Document
 
-    ' Find the frame assembly occurrence
     Dim frameOcc As ComponentOccurrence = Nothing
     For Each occ As ComponentOccurrence In asmDoc.ComponentDefinition.Occurrences
-        If occ.Name.Contains("FRAME ASSY 1000D-7M") Then
+        If occ.Name.ToUpper().Contains("FRAME ASSY 1000D-7M") Then
             frameOcc = occ
             Exit For
         End If
     Next
 
     If frameOcc Is Nothing Then
-        MessageBox.Show("Frame assembly not found in the document.")
+        MessageBox.Show("Frame assembly not found.")
         Return
     End If
-	MessageBox.Show("msg -1")
 
     Try
-        ' Open the frame assembly document directly
         Dim frameDoc As AssemblyDocument = CType(invApp.Documents.Open(frameOcc.Definition.Document.FullFileName, False), AssemblyDocument)
-		
-		If frameDoc Is Nothing Then
-            MessageBox.Show("frameDoc component not found in the frame assembly.")
-            frameDoc.Close()
+        If frameDoc Is Nothing Then
+            MessageBox.Show("Frame document could not be opened.")
             Return
         End If
 
-        ' Find the Upright component in the frame assembly
         Dim uprightOcc As ComponentOccurrence = Nothing
         For Each subOcc As ComponentOccurrence In frameDoc.ComponentDefinition.Occurrences
-            If subOcc.Name.Contains("Upright GXL 90 - 5000 x 1.6") Then
+            If subOcc.Name.ToUpper().Contains("UPRIGHT GXL 90 - 5000 X 1.6") Then
                 uprightOcc = subOcc
                 Exit For
             End If
         Next
 
         If uprightOcc Is Nothing Then
-            MessageBox.Show("Upright component not found in the frame assembly.")
-            frameDoc.Close()
+            MessageBox.Show("Upright not found in frame assembly.")
             Return
         End If
 
-        ' Open the upright part document
-        Dim uprightDoc As Document = invApp.Documents.Open(uprightOcc.Definition.Document.FullFileName, True)
-		MessageBox.Show("msg 0")
-
-        ' Check if it's a part document
-        If TypeOf uprightDoc Is PartDocument Then
-            Dim partDoc As PartDocument = CType(uprightDoc, PartDocument)
-            ' Find the d35 parameter
-			
-			MessageBox.Show("msg 1")
-            
-			Dim heightParam As Parameter
-			heightParam = uprightDoc.ComponentDefinition.Parameters.Item("Height")
-			
-			MessageBox.Show("msg 2")
-
-            ' Check in model parameters
-            For Each param As Parameter In uprightDoc.ComponentDefinition.Parameters
-                If param.Name = "Height" Then
-					'partDoc.ComponentDefinition.Parameters.Item("Height").Expression = "5000 mm"
-                    MessageBox.Show("1", param.Value)
-                    d35Param = param
-                    Exit For
-                End If
-            Next
-			
-			MessageBox.Show("msg 3")
-
-            ' If not found, check in user parameters
-            If d35Param Is Nothing Then
-                For Each param As Parameter In uprightDoc.ComponentDefinition.Parameters.UserParameters
-                    If param.Name.ToLower() = "Height" Then
-                        MessageBox.Show("Msg 2")
-                        d35Param = param
-                        Exit For
-                    End If
-                Next
-            End If
-			
-			MessageBox.Show("msg 4")
-
-            ' If found, update the parameter
-            If heightParam IsNot Nothing Then
-                MessageBox.Show("if")
-				uprightDoc.ComponentDefinition.Parameters.Item("Height").Value = 500
-				'partDoc.ComponentDefinition.Parameters.Item("Height").Expression = "5000 mm"
-                'd35Param.Value = CDbl(700)
-                uprightDoc.Rebuild()
-                uprightDoc.Save()
-				uprightDoc.Close()
-                MessageBox.Show("Parameter d35 updated to 700 in the Upright component.")
-            Else
-                MessageBox.Show("Parameter d35 not found in the Upright component.")
-            End If
-
-            ' Close the upright document
-            uprightDoc.Close()
-        Else
-            MessageBox.Show("The Upright component is not a part document.")
-            uprightDoc.Close()
+        Dim uprightDoc As PartDocument = CType(invApp.Documents.Open(uprightOcc.Definition.Document.FullFileName, True), PartDocument)
+        If uprightDoc Is Nothing Then
+            MessageBox.Show("Unable to open upright part document.")
+            Return
         End If
 
-        ' Update and save the frame assembly
-        frameDoc.Update()
-        frameDoc.Save()
-        'frameDoc.Close()
+        ' Change the parameter value here
+        Dim heightParam As Parameter = uprightDoc.ComponentDefinition.Parameters.Item("Height")
+        heightParam.Value = 5000 / 10 ' Example: 500 cm
+        uprightDoc.Update2()
+        uprightDoc.Save()
+        uprightDoc.Close(True)
 
-        ' Update the main assembly
-        asmDoc.Update()
     Catch ex As Exception
-        MessageBox.Show("Error: " & ex.Message)
+        MessageBox.Show("Error modifying frame parameter: " & ex.Message)
     End Try
 End Sub
