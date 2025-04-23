@@ -1,0 +1,18 @@
+' Find and open Upright part inside Frame assembly
+For Each occ As ComponentOccurrence In asmDoc.ComponentDefinition.Occurrences
+    If occ.DefinitionDocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
+        Dim subAsmDoc As AssemblyDocument = CType(occ.Definition.Document, AssemblyDocument)
+
+        For Each subOcc As ComponentOccurrence In subAsmDoc.ComponentDefinition.Occurrences
+            If subOcc.Name.ToLower().Contains("upright") OrElse subOcc.Definition.Document.DisplayName.ToLower().Contains("upright") Then
+                ' Open the Upright part
+                Dim uprightDoc As Document = subOcc.Definition.Document
+                invApp.Documents.Open(uprightDoc.FullFileName, True)
+                MessageBox.Show("Opened Upright part: " & uprightDoc.DisplayName)
+                Exit Sub
+            End If
+        Next
+    End If
+Next
+
+MessageBox.Show("Upright part not found inside any frame assembly.")
