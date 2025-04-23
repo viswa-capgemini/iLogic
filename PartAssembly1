@@ -1,27 +1,53 @@
+' Define the file path
 Dim isHdFilePath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD.ipt"
+Dim targetHeightValue As Double = 2000 ' Change this to the value you want to set
 
-Dim uprightFound As Boolean = False
+Dim isHdDoc As PartDocument = Nothing
 
-For Each occ As ComponentOccurrence In asmDoc.ComponentDefinition.Occurrences
-    If occ.DefinitionDocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
-        Dim subAsmDoc As AssemblyDocument = CType(occ.Definition.Document, AssemblyDocument)
+Try
+    ' Check if the document is already open
+    For Each doc As Document In invApp.Documents
+        If doc.FullFileName.ToLower() = isHdFilePath.ToLower() Then
+            isHdDoc = CType(doc, PartDocument)
+            Exit For
+        End If
+    Next
 
-        For Each subOcc As ComponentOccurrence In subAsmDoc.ComponentDefinition.Occurrences
-            If subOcc.Name.ToLower().Contains("upright") OrElse subOcc.Definition.Document.DisplayName.ToLower().Contains("upright") Then
-                uprightFound = True
-                Exit For
-            End If
-        Next
+    ' If not open, open the document
+    If isHdDoc Is Nothing Then
+        If System.IO.File.Exists(isHdFilePath) Then
+            isHdDoc = CType(invApp.Documents.Open(isHdFilePath, True), PartDocument) ' Open in editable mode
+        Else
+            MessageBox.Show("IS HD.ipt file not found at: " & isHdFilePath)
+            Return
+        End If
     End If
-Next
 
-If uprightFound Then
-    If System.IO.File.Exists(isHdFilePath) Then
-        invApp.Documents.Open(isHdFilePath, False) ' False = editable
-        MessageBox.Show("Opened IS HD.ipt because Upright was found.")
+    ' Access the parameter
+    Dim userParams As Parameters = isHdDoc.ComponentDefinition.Parameters.UserParameters
+    Dim heightParam As Parameter = Nothing
+
+    For Each param As UserParameter In userParams
+        If param.Name.ToLower() = "height" Then
+            heightParam = param
+            Exit For
+        End If
+    Next
+
+    If heightParam IsNot Nothing Then
+        heightParam.Value = targetHeightValue
+        isHdDoc.Update()
+        isHdDoc.Save2(True)
+        isHdDoc.Close(True)
+        MessageBox.Show("Height updated in IS HD.ipt and document saved.")
     Else
-        MessageBox.Show("IS HD.ipt file not found at: " & isHdFilePath)
+        MessageBox.Show("Height parameter not found in IS HD.ipt")
     End If
-Else
-    MessageBox.Show("Upright not found in any frame assembly.")
-End If
+
+    ' Now update the main assembly
+    asmDoc.Update()
+    MessageBox.Show("Main assembly updated.")
+
+Catch ex As Exception
+    MessageBox.Show("Error: " & ex.Message)
+End Try
