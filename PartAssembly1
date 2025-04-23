@@ -1,18 +1,27 @@
-' Find and open Upright part inside Frame assembly in editable mode
+Dim isHdFilePath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD.ipt"
+
+Dim uprightFound As Boolean = False
+
 For Each occ As ComponentOccurrence In asmDoc.ComponentDefinition.Occurrences
     If occ.DefinitionDocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
         Dim subAsmDoc As AssemblyDocument = CType(occ.Definition.Document, AssemblyDocument)
 
         For Each subOcc As ComponentOccurrence In subAsmDoc.ComponentDefinition.Occurrences
             If subOcc.Name.ToLower().Contains("upright") OrElse subOcc.Definition.Document.DisplayName.ToLower().Contains("upright") Then
-                ' Open the Upright part in editable (not read-only) mode
-                Dim uprightDoc As Document = subOcc.Definition.Document
-                invApp.Documents.Open(uprightDoc.FullFileName, False) ' False = editable
-                MessageBox.Show("Opened Upright part in editable mode: " & uprightDoc.DisplayName)
-                Exit Sub
+                uprightFound = True
+                Exit For
             End If
         Next
     End If
 Next
 
-MessageBox.Show("Upright part not found inside any frame assembly.")
+If uprightFound Then
+    If System.IO.File.Exists(isHdFilePath) Then
+        invApp.Documents.Open(isHdFilePath, False) ' False = editable
+        MessageBox.Show("Opened IS HD.ipt because Upright was found.")
+    Else
+        MessageBox.Show("IS HD.ipt file not found at: " & isHdFilePath)
+    End If
+Else
+    MessageBox.Show("Upright not found in any frame assembly.")
+End If
