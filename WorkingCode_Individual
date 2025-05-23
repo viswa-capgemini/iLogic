@@ -1,0 +1,357 @@
+AddReference "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\Newtonsoft.Json.dll"
+Imports System.IO
+Imports Newtonsoft.Json
+Imports Newtonsoft.Json.Linq
+Imports Inventor
+Sub Main()
+Dim invApp As Inventor.Application = ThisApplication
+Dim asmDoc As AssemblyDocument = ThisDoc.Document
+
+Dim jsonPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\layoutdata.txt"
+If Not System.IO.File.Exists(jsonPath) Then
+	MessageBox.Show("JSON file not found at: " & jsonPath)
+	Return
+End If
+
+Dim jsonText As String = System.IO.File.ReadAllText(jsonPath)
+Dim json As JObject = JObject.Parse(jsonText)
+Dim basePath As String = json("basePath").ToString()
+
+For Each comp In json("components")
+	Dim fileName As String = comp("fileName").ToString()
+	Dim fullPath As String = System.IO.Path.Combine(basePath, fileName)
+
+	If Not System.IO.File.Exists(fullPath) Then
+		MessageBox.Show("Missing part: " & fullPath)
+		Continue For
+	End If
+
+	' Position
+	Dim px As Double = CDbl(comp("position")("x")) / 10 ' mm to cm
+	Dim py As Double = CDbl(comp("position")("y")) / 10
+	Dim pz As Double = CDbl(comp("position")("z")) / 10
+
+	' Rotation (default 0 if missing)
+	Dim rx As Double = 0
+	Dim ry As Double = 0
+	Dim rz As Double = 0
+
+	If comp("rotation") IsNot Nothing Then
+		rx = CDbl(comp("rotation")("x"))
+		ry = CDbl(comp("rotation")("y"))
+		rz = CDbl(comp("rotation")("z"))
+	End If
+
+	Dim tg As TransientGeometry = invApp.TransientGeometry
+	Dim matrix As Matrix = tg.CreateMatrix()
+	matrix.SetTranslation(tg.CreateVector(px, py, pz), False)
+
+	' Beam logic
+	If fileName.ToLower().Contains("beam") Then
+		Dim spacing As Double = -1400 / 10 ' cm
+		Dim zSpacing As Double = -4100 / 10 ' 4100 mm in cm
+		Dim stopperPath As String = System.IO.Path.Combine(basePath, "Pallet stopper bracket No overhang.ipt")
+
+		' Check for specific position to apply the 100 times logic
+		If px = -120.7 AndAlso py = 246.1 AndAlso pz = -50.5 Then
+
+			For i As Integer = 0 To 9
+				For j As Integer = 0 To 2
+
+					Dim beamMatrix As matrix = tg.CreateMatrix()
+					beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+
+					' Handle known beam rotation
+					beamMatrix.Cell(1, 1) = 1
+					beamMatrix.Cell(1, 2) = 0
+					beamMatrix.Cell(1, 3) = 0
+					beamMatrix.Cell(2, 1) = 0
+					beamMatrix.Cell(2, 2) = 0
+					beamMatrix.Cell(2, 3) = 1
+					beamMatrix.Cell(3, 1) = 0
+					beamMatrix.Cell(3, 2) = -1
+					beamMatrix.Cell(3, 3) = 0
+
+					asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+				Next
+			Next
+		ElseIf px = 28.3 AndAlso py = 246.1 AndAlso pz = -359 Then
+			For i As Integer = 0 To 9
+				For j As Integer = 0 To 2
+					Dim beamMatrix As matrix = tg.CreateMatrix()
+					beamMatrix.SetTranslation(tg.CreateVector(px, py + (j * spacing), pz + (i * zSpacing)), False)
+
+					beamMatrix.Cell(1, 1) = -1
+					beamMatrix.Cell(1, 2) = 0
+					beamMatrix.Cell(1, 3) = 0
+					beamMatrix.Cell(2, 1) = 0
+					beamMatrix.Cell(2, 2) = 0
+					beamMatrix.Cell(2, 3) = 1
+					beamMatrix.Cell(3, 1) = 0
+					beamMatrix.Cell(3, 2) = 1
+					beamMatrix.Cell(3, 3) = 0
+
+					asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+				Next
+			Next
+		Else
+			For i As Integer = 0 To 2
+				Dim beamMatrix As matrix = tg.CreateMatrix()
+				beamMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz), False)
+				asmDoc.ComponentDefinition.Occurrences.Add(fullPath, beamMatrix)
+			Next
+		End If
+
+		Continue For
+	End If
+
+	' Place stopper directly with JSON position — three times like beams
+	If fileName.ToLower().Contains("stopper") Then
+		Dim spacing As Double = -1400 / 10 ' 1400 mm in cm
+		Dim offsetZ As Double = 4100 / 10  ' 4100 mm in cm
+
+		' First set of 3 stoppers
+		For i As Integer = 0 To 2
+			Dim stopperMatrix As matrix = tg.CreateMatrix()
+			stopperMatrix.SetTranslation(tg.CreateVector(pz, py + (i * spacing), px), False)
+
+			Dim angleRad As Double = Math.PI / 2
+			Dim rotationMatrix As matrix = tg.CreateMatrix()
+			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
+			stopperMatrix.TransformBy(rotationMatrix)
+
+			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix)
+		Next
+
+		' Second set of 3 stoppers, 4100mm offset in Z direction
+		For i As Integer = 0 To 2
+			Dim stopperMatrix2 As matrix = tg.CreateMatrix()
+			stopperMatrix2.SetTranslation(tg.CreateVector(pz + offsetZ, py + (i * spacing), px), False)
+
+			Dim angleRad As Double = Math.PI / 2
+			Dim rotationMatrix As matrix = tg.CreateMatrix()
+			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
+			stopperMatrix2.TransformBy(rotationMatrix)
+
+			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, stopperMatrix2)
+		Next
+
+		Continue For
+	End If
+
+
+	If fileName.ToLower().Contains("c - channel.ipt") Then
+		Dim zSpacing As Double = -4100 / 10 ' 4100 mm in cm
+		Dim spacing As Double = -1400 / 10 ' 1400 mm in cm
+
+		For j As Integer = 0 To 9
+			For i As Integer = 0 To 2
+				Dim channelMatrix As matrix = tg.CreateMatrix()
+				channelMatrix.SetTranslation(tg.CreateVector(px, py + (i * spacing), pz + (j * zSpacing)), False)
+
+				' Optional: Apply rotation if needed, for example:
+				' Dim angleRad As Double = Math.PI / 2
+				' Dim rotationMatrix As Matrix = tg.CreateMatrix()
+				' rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 1, 0), tg.CreatePoint(0, 0, 0))
+				' channelMatrix.TransformBy(rotationMatrix)
+
+				asmDoc.ComponentDefinition.Occurrences.Add(fullPath, channelMatrix)
+			Next
+		Next
+
+		Continue For
+	End If
+
+	If fileName.ToLower().Contains("iso 4018") Then
+		Dim screwSpacing As Double = -50 / 10
+
+		' Place 3 screws with spacing
+		For i As Integer = 0 To 1
+			Dim screwMatrix As matrix = tg.CreateMatrix()
+			screwMatrix.SetTranslation(tg.CreateVector(px, py, pz + (i * screwSpacing)), False)
+
+			' Apply Z-axis rotation
+			Dim angleRad As Double = Math.PI ' or comp("rotation")("z") if dynamic
+			Dim rotationMatrix As matrix = tg.CreateMatrix()
+			rotationMatrix.SetToRotation(angleRad, tg.CreateVector(0, 0, 1), tg.CreatePoint(0, 0, 0))
+			screwMatrix.TransformBy(rotationMatrix)
+
+			asmDoc.ComponentDefinition.Occurrences.Add(fullPath, screwMatrix)
+		Next
+
+		Continue For
+	End If
+
+	' Place normal part
+	asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix)
+	' Duplicate frame if needed
+	If fileName.ToLower().Contains("frame") Then
+    Dim spacing As Double = -4100 / 10 ' 4100 mm in cm
+    
+    ' Define paths
+    Dim originalUprightPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD S3 547 R2 - UPRIGHT GXL 90 LxT.ipt"
+    Dim specialUprightPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD S3 547 R2 - UPRIGHT GXL 90 LxT-7000mm.ipt"
+    Dim referenceFilePath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\Upright GXL 90 - 5000 x 1.6.ipt"
+    
+    ' Define special frame assembly path
+    Dim specialFramePath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\FRAME ASSY 1000D-7M_7000.iam"
+    
+    ' Create the special upright part if it doesn't exist
+    If Not System.IO.File.Exists(specialUprightPath) Then
+        Try
+            ' Open the original upright part
+            Dim uprightDoc As PartDocument = CType(invApp.Documents.Open(originalUprightPath, False), PartDocument)
+            
+            ' Find and modify the height parameter
+            Dim heightParam As Parameter = Nothing
+            For Each param As Parameter In uprightDoc.ComponentDefinition.Parameters
+                If param.Name = "Height" Then
+                    param.Expression = "7000 mm"
+                    heightParam = param
+                    Exit For
+                End If
+            Next
+            
+            If heightParam IsNot Nothing Then
+                uprightDoc.Update()
+                uprightDoc.SaveAs(specialUprightPath, False)
+                MessageBox.Show("Created special upright part with 7000mm height")
+            Else
+                MessageBox.Show("Height parameter not found in upright part")
+            End If
+            
+            uprightDoc.Close(True)
+        Catch ex As Exception
+            MessageBox.Show("Error creating special upright part: " & ex.Message)
+        End Try
+    End If
+    
+    ' Create the special frame assembly if it doesn't exist
+    If Not System.IO.File.Exists(specialFramePath) Then
+        Try
+            ' Open the original frame assembly
+            Dim origFrameDoc As AssemblyDocument = CType(invApp.Documents.Open(fullPath, False), AssemblyDocument)
+            
+            ' Create a new assembly for the special frame
+            Dim specialFrameDoc As AssemblyDocument = CType(invApp.Documents.Add(DocumentTypeEnum.kAssemblyDocumentObject), AssemblyDocument)
+            
+            ' Copy all components from the original frame
+            For Each occ As ComponentOccurrence In origFrameDoc.ComponentDefinition.Occurrences
+                Dim compPath As String = occ.Definition.Document.FullFileName
+                
+                ' Add the component to the special frame assembly
+                specialFrameDoc.ComponentDefinition.Occurrences.Add(compPath, occ.Transformation)
+            Next
+            
+            ' Replace uprights in the special frame assembly
+            ReplaceUprightInSubassemblies(specialFrameDoc)
+            
+            ' Save the special frame assembly
+            specialFrameDoc.Update()
+            specialFrameDoc.SaveAs(specialFramePath, False)
+            specialFrameDoc.Close(True)
+            origFrameDoc.Close(True)
+            
+            MessageBox.Show("Created special frame assembly with 7000mm upright")
+        Catch ex As Exception
+            MessageBox.Show("Error creating special frame assembly: " & ex.Message)
+        End Try
+    End If
+    
+    ' Place frames
+    For i As Integer = 0 To 9
+        Dim matrix2 As matrix = tg.CreateMatrix()
+        matrix2.SetTranslation(tg.CreateVector(px, py, pz + (i * spacing)), False)
+        
+        ' Use special frame for index 2
+        If i = 2 And System.IO.File.Exists(specialFramePath) Then
+            asmDoc.ComponentDefinition.Occurrences.Add(specialFramePath, matrix2)
+        Else
+            asmDoc.ComponentDefinition.Occurrences.Add(fullPath, matrix2)
+        End If
+    Next
+End If
+Next
+
+'asmDoc.Save()
+
+' After placing all components, modify the frame parameter
+'ModifyFrameParameters()
+
+MessageBox.Show("All components placed!", "Assembly Complete")
+End Sub
+Sub ReplaceUprightInSubassemblies(assy As AssemblyDocument)
+    ' Define paths for the upright parts
+    Dim originalUprightPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD S3 547 R2 - UPRIGHT GXL 90 LxT.ipt"
+    Dim specialUprightPath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\IS HD S3 547 R2 - UPRIGHT GXL 90 LxT-7000mm.ipt"
+    Dim referenceFilePath As String = "C:\Users\reetts\Desktop\Godrej\IPT_project\3Dconfig\parts\Upright GXL 90 - 5000 x 1.6.ipt"
+    
+    ' Debug: List all documents in the assembly
+    MessageBox.Show("Starting upright replacement in assembly: " & assy.DisplayName)
+    
+    ' Process all occurrences in the assembly
+    Dim replacementCount As Integer = 0
+    ProcessAssemblyOccurrences(assy.ComponentDefinition.Occurrences, originalUprightPath, specialUprightPath, referenceFilePath, replacementCount)
+    
+    If replacementCount > 0 Then
+        MessageBox.Show("Successfully replaced " & replacementCount & " uprights with 7000mm version")
+    Else
+        MessageBox.Show("WARNING: No uprights were replaced. Check file paths and assembly structure.")
+        
+        ' Additional debugging: List all documents in the assembly
+        Dim docPaths As String = "Documents in assembly:" & vbCrLf
+        For Each doc As Document In assy.AllReferencedDocuments
+            docPaths = docPaths & doc.FullFileName & vbCrLf
+        Next
+        MessageBox.Show(docPaths)
+    End If
+End Sub
+
+' Helper function to process occurrences recursively
+Sub ProcessAssemblyOccurrences(occurrences As ComponentOccurrences, originalUprightPath As String, specialUprightPath As String, referenceFilePath As String, ByRef replacementCount As Integer)
+    ' Create a collection to avoid modification during iteration
+    Dim occsToProcess As New Collection()
+    For Each occ As ComponentOccurrence In occurrences
+        occsToProcess.Add(occ)
+    Next
+    
+    ' Process each occurrence
+    For Each obj As Object In occsToProcess
+        Dim occ As ComponentOccurrence = CType(obj, ComponentOccurrence)
+        
+        ' Debug: Show document path
+        Dim docPath As String = occ.Definition.Document.FullFileName
+        
+        ' Check if this is the original upright part
+        If docPath.ToLower() = originalUprightPath.ToLower() Or docPath.ToLower() = referenceFilePath.ToLower() Then
+            ' Replace with special upright
+            Dim parentAssy As AssemblyComponentDefinition = CType(occ.Parent, AssemblyComponentDefinition)
+            Dim transform As Matrix = occ.Transformation
+            Dim occName As String = occ.Name
+            
+            MessageBox.Show("Found upright to replace: " & docPath)
+            
+            ' Delete the original occurrence
+            occ.Delete()
+            
+            ' Add the special upright
+            Dim newOcc As ComponentOccurrence = parentAssy.Occurrences.Add(specialUprightPath, transform)
+            newOcc.Name = occName
+            replacementCount += 1
+            MessageBox.Show("Replaced upright part with 7000mm version")
+        ElseIf docPath.ToLower() = referenceFilePath.ToLower() Then
+            ' This is the reference file that uses the upright
+            MessageBox.Show("Found reference file: " & docPath)
+            
+            ' We need to replace any instances of the original upright in this subassembly
+            If occ.SubOccurrences IsNot Nothing AndAlso occ.SubOccurrences.Count > 0 Then
+                ProcessAssemblyOccurrences(occ.SubOccurrences, originalUprightPath, specialUprightPath, referenceFilePath, replacementCount)
+            End If
+        ElseIf occ.DefinitionDocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
+            ' This is a subassembly - process its occurrences
+            If occ.SubOccurrences IsNot Nothing AndAlso occ.SubOccurrences.Count > 0 Then
+                ProcessAssemblyOccurrences(occ.SubOccurrences, originalUprightPath, specialUprightPath, referenceFilePath, replacementCount)
+            End If
+        End If
+    Next
+End Sub
